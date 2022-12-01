@@ -73,6 +73,7 @@ class human_tracker():
                 self.camera_id_none=True
         else:
             self.camera_id_none=False
+        print(self.cnt)
         self.cnt+=1
 
 
