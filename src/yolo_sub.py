@@ -18,8 +18,6 @@ class human_tracker():
         # self.pubs['cmd_vel'] = rospy.Publisher("cmd_vel", Twist,queue_size=1)
 
     def track_callback(self, data):
-        
-
         axis,number,clss=data.axis,data.number,data.clss
         merge=list()
         for i in range(len(clss)):
@@ -67,10 +65,10 @@ class human_tracker():
             self.camera_mode=False
 
         else: 
-            self.camera_id_none=True
+            self.camera_id_none=False
         
         if self.camera_mode: 
-            self.camera_id_none=True
+            self.camera_id_none=False
         
 
 
