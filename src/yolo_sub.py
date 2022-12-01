@@ -58,6 +58,7 @@ class human_tracker():
 
     def camera_cmd(self, list_):
         print("track id{}".format(self.target_c))
+        print("hi")
         self.camera_mode=True
         id_list=[list_[i][1] for i in range(len(list_))]
 
