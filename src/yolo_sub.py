@@ -43,7 +43,7 @@ class human_tracker():
             # print('Camera Tracking')
         # else:
         #     print("None")
-        # self.lidarcamera()
+        # self.lidarcamera()sdasdsadasd
 
     def camera_track(self, list_):
         print("find id")
