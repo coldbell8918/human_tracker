@@ -1,0 +1,20 @@
+<launch>
+  <arg name="set_port_motor" default="/dev/ttyMotor"/>
+  <arg name="set_port_lidar" default="/dev/ydlidar"/>
+  <arg name="set_port_imu" default="/dev/ttyIMU"/>
+  <arg name="set_joy_en" default="0"/>
+ 
+  
+  <include file="$(find omo_r1_bringup)/launch/omo_r1_motor.launch">
+    <arg name="set_port" value="$(arg set_port_motor)"/>
+  </include>
+
+  <!-- <include file="$(find ydlidar_ros_driver)/launch/G6_G7.launch">
+    <arg name="set_port" value="$(arg set_port_motor)"/>
+  </include> -->
+
+  <node name="yolov5_node" type="rstest.py" pkg="human_following" output="screen"/>
+  <node name="sub_yolo" type="yolo_jong.py" pkg="human_following" output="screen"/>
+
+  
+</launch>

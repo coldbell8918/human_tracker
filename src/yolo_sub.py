@@ -5,108 +5,159 @@ from human_following.msg import track
 import numpy as np
 from leg_tracker.msg import Person, PersonArray, Leg, LegArray
 import time
+import os
+from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
+from geometry_msgs.msg import PoseStamped
+from utils.track_helper.config_info import config_maker,config_reader,config_comparer
+from utils.track_helper.help_functions import matching_target,goal_pub,track_function,matching_datas
+from utils.track_helper.help_transform import data_transform,tf_transform
 
+file_path=os.path.dirname(__file__) + '/config/following_config.ini'
 
-class human_tracker():
-    def __init__(self):
-        self.pubs=list()
-        self.cnt=0
-        self.subs1=[rospy.Subscriber('tracker', track, self.track_callback)]
+if os.path.isfile(file_path):
+    print('The config file exist, path: \n {}'.format(file_path))
+    config_comparer(file_path)
+    config=config_reader(file_path)
+else:
+    print("The config file doesn't exist, therefor will make a file, parh:\n {} ".format(file_path))
+    config_maker(file_path)
+    config=config_reader(file_path)
+
+class Track():
+    def __init__(self,configs):
+        #Config
+        self.cnt=int(configs['lower count setting']['cnt'])
+        self.cnt2=int(configs['lower count setting']['cnt2'])
+        self.searching_cnt_lim=int(configs['upper count setting']['searching_cnt_lim'])
+        self.waiting_cnt_lim=int(configs['upper count setting']['waiting_cnt_lim'])
+        self.finding_cnt_lim=int(configs['upper count setting']['finding_cnt_lim'])
+        self.distance_lim=float(configs['lower distance setting']['distance_lim'])
+
+        #Subscribing rostopics
+        self.subs1=[rospy.Subscriber('tracker', track, self.cam_track_callback)]
         self.subs2=[rospy.Subscriber('people_tracked', PersonArray, self.person_callback)]
-        self.camera_id_none,self.lidar_id,self.stop =True,True,True
-        self.camera_ok,self.lidar_ok=False,False
+        self.sub3=[rospy.Subscriber('/amcl_pose', PoseWithCovarianceStamped, self.robot_current_pos)]
+        
+        self.robot_x=0
+        self.robot_y=0
+        self.robot_th=0
 
-        # self.pubs['cmd_vel'] = rospy.Publisher("cmd_vel", Twist,queue_size=1)
+        #Publicating a rostopic : goal position
+        self.pub=rospy.Publisher('/move_base/current_goal_follow',PoseStamped,queue_size=1)
+        self.goal_msg=PoseStamped()
+        self.r=rospy.Rate(30)
+        
+        #For saveing the last target's position
+        self.save_last_goal=list()
 
-    def track_callback(self, data):
-        axis,number,clss=data.axis,data.number,data.clss
-        merge=list()
-        for i in range(len(clss)):
-            merge.append(clss[i])
-            merge.append(number[i])
-            y=round(pow(pow(axis[2*i+1]+0.1,2)-pow(axis[2*i],2),0.5),3)
-            merge.append((y,round(-axis[2*i],3),round(axis[2*i+1]+0.1,3)))
-        ### merge [[0,1,(x,y,z)]]
-        merge=np.array(merge,dtype=object)
-        merge=np.reshape(merge,(int(len(merge)/3),3))
+        #Checking a target id 
+        self.camera_id_none,self.lidar_id_none =True,True
 
-        # 
-        # if len(merge)!=0:
-        if self.camera_id_none: 
-            # self.camera_ok=False 
-            self.camera_track(merge)         
-            #print('no id')
-        else: 
-            # self.camera_ok=True
-            self.camera_cmd(merge)
-            # print('Camera Tracking')
-        # else:
-        #     print("None")
-        # self.lidarcamera()sdasdsadasd
-
-    def camera_track(self, list_):
-        print("find id")
-        if len(list_)!=0:
-            axis_z_list=[list_[i][2][2] for i in range(len(list_))]
-            min_dist=np.where(np.array(axis_z_list)-min(axis_z_list)==0)[0][0]
-            self.target_c=list_[min_dist][1]
-            self.camera_id_none=False
-            print(self.target_c)
-           
-        else: 
-            self.target_c=None
-            
-
-    def camera_cmd(self, list_):
-        print("track id{}".format(self.target_c))
-        if self.cnt>1000:
-            self.cnt=0
-            self.camera_mode=True
-            id_list=[list_[i][1] for i in range(len(list_))]
-            if len(np.where(np.array(id_list)==self.target_c)[0])!=0: 
-                self.camera_mode=False
-
-            else: 
-                self.camera_id_none=True
-            
-            if self.camera_mode: 
-                self.camera_id_none=True
-        else:
-            self.camera_id_none=False
-        print(self.cnt)
-        self.cnt+=1
-
-
-    def person_callback(self, data):
-        if self.lidar_id: self.lidar_ok=False,self.lidar_track(data.people)            
-        else: self.lidar_ok=True, self.lidar_cmd(data.people)
-      
-    def lidar_track(self, list_):
-        # self.lidarcamera()
-
-        id_list=[list_[i].id for i in range(len(list_))]
-        if len(id_list)!=0:
-            dis=[pow(list_[i].pose.position.x**2+list_[i].pose.position.y**2,0.5) for i in range (0,len(list_))]
-            min_dist=np.where(np.array(dis)-min(dis)==0)[0][0]
-            self.track_l=list_[min_dist].id
-            self.lidar_id=False
-
-        else: 
-            self.track_l=None
-
-    def lidar_cmd(self, list_):
-        self.lidar_mode=True
-        id_list=[ list_[i].id for i in range(0,len(list_))]
-        if len(np.where(np.array(id_list)==self.track_l)[0])==0: self.lidar_mode=False
-        if self.lidar_mode: self.lidar_id=True
-
-    def lidarcamera(self):
-        if self.camera_ok and self.lidar_ok: print("camera+lidar")
-        elif self.camera_ok and not self.lidar_ok: print("only camera")  
-        elif not self.camera_ok and self.lidar_ok: print("only lidar") 
-        else: print("None")
+        #save_data
+        self.camera_data,self.lidar_data=list(),list()
+        
     
+    def robot_current_pos(self,data): ### Robot's current position
+        positions=data.pose.pose
+        self.robot_x=positions.position.x
+        self.robot_y=positions.position.y
+        self.robot_th=positions.orientation.z
+
+    def cam_track_callback(self, data):
+        merge=data_transform(data,'cam')
+        if self.camera_id_none:
+            self.camera_track(merge)
+            if len(merge)!=0:
+                self.camera_cmd(merge)
+        else:
+            self.camera_cmd(merge)
+
+    def camera_track(self, list_): ### making a target human who is near by the robot
+        print("Make a target id")
+        if len(list_)!=0:
+            self.camera_id_none,self.target_c,target_axis=track_function(list_)
+            
+            return target_axis
+        
+        else: 
+            self.target_c= None
+            self.camera_id_none=True
+            return None,None,None
+        
+    def wait_time_cnt(self,list_):  ### the time is overing its limitation, then the robot will be waiting(stopping)
+        if  self.cnt2<self.waiting_cnt_lim and matching_target(list_,self.target_c,'len')==0 : 
+            print('Robot is waiting the target until count {}/{}'.format(self.cnt2,self.waiting_cnt_lim))
+            if self.cnt2==self.waiting_cnt_lim-1:
+                self.cnt2,self.cnt=0,0
+                self.camera_track(list_)
+                
+    def camera_cmd(self, list_):   
+        if matching_target(list_,self.target_c,'len')!=0:
+            if self.cnt>=self.finding_cnt_lim:  ### considering misses the target a couple of second
+                print('\nFind the target {} \n'.format(self.target_c))
+            self.camera_move(list_,save=True)
+            print("Track id {}".format(self.target_c))
+            # if list_[self.target_c][]
+            self.cnt=0
+        else:
+            if self.cnt>self.searching_cnt_lim: 
+                if self.cnt2<self.waiting_cnt_lim:
+                    self.wait_time_cnt(list_)
+                self.cnt2+=1
+            else: 
+                self.camera_move(list_,save=False)
+                print("Robot is deriving for searching the target until count: {}/{}".format(self.cnt,self.searching_cnt_lim))
+                self.cnt+=1
+    
+    def camera_move(self, list_,save): ### Pointing a robot's goal position. When the robot missed the target ,then save target's last position 
+        if save:             
+            num=matching_target(list_,self.target_c,'index')
+            x=list_[num][0][2][0]-self.distance_lim
+            y=list_[num][0][2][1]-self.distance_lim
+
+            x,y= tf_transform(self.robot_x,self.robot_y,self.robot_th,x,y)
+
+            if len(self.save_last_goal)!=0:
+                self.save_last_goal=list()
+            self.save_last_goal.append(x)
+            self.save_last_goal.append(y)
+        # print(self.goal_msg)
+        self.goal_msg=goal_pub(self.goal_msg,self.save_last_goal)
+        self.pub.publish(self.goal_msg)
+        # print(self.goal_mssg)
+        self.r.sleep()
+
+##########################
+    # def person_callback(self, data):
+    #     merge=data_transform(data,'lidar')
+    #     if self.lidar_id_none:
+    #         self.lidar_track(merge)
+    #         if len(merge)!=0:
+    #             self.lidar_track(merge)
+      
+    
+    # def lidar_track(self, list_): ### making a target human who is near by the robot
+    #     print("Make a target id")
+
+    #     if len(list_)!=0:
+    #         self.lidar_id_none,self.target_l,target_axis=track_function(list_)
+    #         return self.target_l ,target_axis
+        
+    #     else: 
+    #         self.target_l= None
+    #         self.lidar_id_none=True
+    #         return None,None,None
+
+    # def make_target(self):
+    #     match=matching_datas
+    #     self.camera_data
+    #     self.lidar_data
+###################################### 
+
 if __name__ == '__main__':
     rospy.init_node('sub_yolo', anonymous=True)
-    cls_=human_tracker()
+    tracker=Track(config)
     rospy.spin()
+
+
+    #### while -> camera or lidar 

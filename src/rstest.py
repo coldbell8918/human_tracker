@@ -11,8 +11,9 @@ import torch
 from utils.downloads import attempt_download
 from deep_sort_pytorch.utils.parser import get_config
 from deep_sort_pytorch.deep_sort import DeepSort
-
 from human_following.msg import track
+
+# from human_following.msg import track, camera_tracked
 
 import pyrealsense2 as rs
 import math
@@ -224,6 +225,20 @@ def pub( list_1, list_2, list_3):
         blish.publish(pub_array)
         rate.sleep()
 
+    # global pub_camera_tracked
+    # data = camera_tracked()
+    # data.pose.x = list_1[2]
+    # data.pose.y = list_1[0]
+    # data.is_reconize = list_2[0]
+    # data.index = list_3[0]
+    # data.header.stamp = rospy.Time.now()
+    # ## Todo frame id to parameter
+    # data.header.frame_id = "camera_link"
+    # pub_camera_tracked.publish(data)
+
+    
+
+
 
 
     
@@ -235,6 +250,9 @@ if __name__ == '__main__':
     model = YoloV5(yolov5_yaml_path='/home/cai/catkin_ws/src/human_following/src/config/yolov5s.yaml')
     print("[INFO] 完成YoloV5模型加载")
     rospy.init_node('yolov5_node')
+    # global pub_camera_tracked
+    # pub_camera_tracked = rospy.Publisher("tracker", camera_tracked, queue_size=1)
+
 
     try:
         while True:
