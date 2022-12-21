@@ -34,19 +34,37 @@ def matching_data(list_,target,target_img,imgs,length,type,const,sensor):
             norm=np.linalg.norm(axis_lists-target,axis=0)
             calculate=np.min(distances*norm/match_count)
             check=np.where(calculate<const)[0]
-
+            if check==[]:
+                if length=='len':
+                    return 0
+                elif length=='index':
+                    return None
+            else:    
+                if length=='len':
+                    return len(check)
+                elif length=='id_axis':
+                    return list_[check[0]][1],list_[check[0]][2],check[0]
+        
         elif sensor=='lidar':
             norm=np.min(np.linalg.norm(axis_lists-target,axis=0))
             check=np.where(norm<const)[0]
+            if check==[]:
+                if length=='len':
+                    return 0
+                elif length=='index':
+                    return None
+            else:    
+                if length=='len':
+                    return len(check)
+                elif length=='id_axis':
+                    return list_[check[0]][1],list_[check[0]][2]
         
-        if check==[]:
-            if length=='len':
-                return 0
-            elif length=='index':
-                return None
-        else:    
-            if length=='len':
-                return len(check)
-            elif length=='id_axis':
-                return list_[check[0]][1],list_[check[0]][2]
+
     
+def cam_aof_check(target_id,target_axis,cam_aov):
+    target_axis=np.array(target_axis)
+    theta=np.arcsin(target_axis[0]/target_axis[2]) ## x/depth
+    if theta<(90-cam_aov/2) or theta>(cam_aov/2+90):
+        return None,None
+    else:
+        return target_id,target_axis

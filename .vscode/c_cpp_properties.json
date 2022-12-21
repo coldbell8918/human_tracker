@@ -1,0 +1,40 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/sb/new_ws/devel_isolated/lvr_ros/include/**",
+        "/home/sb/new_ws/devel_isolated/label_manager/include/**",
+        "/home/sb/new_ws/devel_isolated/mesh_msgs/include/**",
+        "/home/sb/catkin_ws/devel/include/**",
+        "/opt/ros/melodic/include/**",
+        "/home/sb/new_ws/devel_isolated/lvr2/include/**",
+        "/home/sb/catkin_ws/src/Azure_Kinect_ROS_Driver/include/**",
+        "/home/sb/catkin_ws/src/cmd/include/**",
+        "/home/sb/new_ws/src/mesh_tools/hdf5_map_io/include/**",
+        "/home/sb/new_ws/src/mesh_tools/label_manager/include/**",
+        "/home/sb/catkin_ws/src/leg_tracker/include/**",
+        "/home/sb/new_ws/src/lvr_ros/include/**",
+        "/home/sb/new_ws/src/mesh_tools/mesh_msgs_conversions/include/**",
+        "/home/sb/new_ws/src/mesh_tools/mesh_msgs_hdf5/include/**",
+        "/home/sb/new_ws/src/mesh_tools/mesh_msgs_transform/include/**",
+        "/home/sb/catkin_ws/src/mpc_ros/mpc_ros/include/**",
+        "/home/sb/catkin_ws/src/my_first_ros_pkg/include/**",
+        "/home/sb/catkin_ws/src/octomap_mapping/octomap_server/include/**",
+        "/home/sb/catkin_ws/src/realsense-ros/realsense2_camera/include/**",
+        "/home/sb/catkin_ws/src/rtabmap_ros/include/**",
+        "/home/sb/new_ws/src/mesh_tools/rviz_map_plugin/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}

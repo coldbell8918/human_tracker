@@ -16,7 +16,7 @@ from std_srvs.srv import SetBool, SetBoolResponse
 
 from utils.track_helper.config_info import config_maker,config_reader,config_comparer
 from utils.track_helper.help_track import make_target_function
-from utils.track_helper.help_matching import matching_data
+from utils.track_helper.help_matching import matching_data,cam_aof_check
 from utils.track_helper.help_transform import data_transform
 from utils.track_helper.help_cmd import cmd_decision
 
@@ -48,6 +48,7 @@ class Track():
         self.max_angular=float(configs['cmd setting']['max_angular const'])
         self.angular_const=float(configs['cmd setting']['angular const'])
         self.linear_const=float(configs['cmd setting']['linear const'])
+        self.cam_aov=int(configs['camera aov']['angle of view'])
         self.is_service=True
         
         # ____________constant___________#
@@ -123,7 +124,7 @@ class Track():
         """
         print("Make a target id from CAMERA")
         if len(list_)!=0:
-            self.target_cam_id,self.target_cam,index =make_target_function(list_,self.id_or_axis)
+            self.target_cam_id,self.target_cam,index =make_target_function(list_,self.id_or_axis,'cam')
             self.make_target_cam=False
             self.to_lidar=False
             self.target_img=self.crop_images[index]
@@ -149,11 +150,12 @@ class Track():
                         if self.cnt==self.searching_cnt_lim: 
                             self.to_lidar=True
                             print("\n Missing the target human form CAMEAR\n")
-                            # self.cnt=0
-                        # self.cnt+=1 
+                            self.cnt=0
+                        self.cnt+=1 
                 else:
                     self.to_lidar=False
-                    self.target_cam_id,self.target_cam=matching_data(*datas,'id_axis',self.id_or_axis,self.const,'cam')
+                    self.target_cam_id,self.target_cam,index=matching_data(*datas,'id_axis',self.id_or_axis,self.const,'cam')
+                    self.target_img=self.crop_images[index]
                     print("Track id from CAMERA {}".format(self.target_cam_id))
                     self.cnt=0
             else:
@@ -162,9 +164,9 @@ class Track():
 
                         self.to_lidar=True
                         print("\n Missing the target human form CAMEAR\n")
-                        # self.cnt=0
+                        self.cnt=0
                     print('\ncam missing {}\n'.format(self.cnt))
-                    # self.cnt+=1 
+                    self.cnt+=1 
 # ____________________CAM____________________ #
 
 
@@ -180,9 +182,13 @@ class Track():
         
         print("Make a target id from LIDAR")
         if len(list_)!=0:
-            self.target_lidar_id,self.target_lidar=make_target_function(list_,self.id_or_axis)
-            self.make_target_lidar=False
-            self.to_cam=False
+            self.target_lidar_id,self.target_lidar=make_target_function(list_,self.id_or_axis,'lidar')
+            self.target_lidar_id,self.target_lidar=self.cam_aof_check(self.target_lidar_id,self.target_lidar)
+            if self.target_lidar!=None:
+                self.make_target_lidar=False
+                self.to_cam=False
+            else:
+                self.target_lidar=list()
         else:
             self.target_lidar=list()
 
@@ -296,6 +302,11 @@ class Track():
         print('cam{}'.format(self.target_cam))
         print('lidar{}'.format(self.target_lidar))
         if not self.is_service: return
+        
+        if cam_aof_check(self.target_lidar_id,self.target_lidar,self.cam_aov)[0]!=None: 
+            self.to_lidar=False
+        else:
+            pass
 
         if self.make_target_cam==True and self.make_target_lidar ==True:
             """
@@ -308,7 +319,7 @@ class Track():
         elif self.make_target_cam and self.make_target_lidar ==False:
             print('\n Make target by Cam \n Lidar has it')
             self.lidar_missing_check(self.lidar_merge,self.target_lidar)
-            # self.cam_target_maker([[0,self.target_lidar_id,(self.target_lidar)]])
+            self.cam_target_maker([[0,self.target_lidar_id,(self.target_lidar)]])
             
             self.cam_target_maker(self.cam_merge)
             self.visualize_target(self.target_lidar)
@@ -321,14 +332,20 @@ class Track():
             self.visualize_target(self.target_cam)
             self.velocity(self.target_cam,'cam')
 
-            
+
+
         else:
             """
                 Description : tracking code 
             """
             if self.to_lidar ==False  and self.to_cam ==False:
                 self.lidar_missing_check(self.lidar_merge,self.target_lidar)
-                self.cam_missing_check(self.cam_merge,self.target_cam)
+            
+                if cam_aof_check(self.target_lidar_id,self.target_lidar,self.cam_aov)[0]!=None: 
+                    self.cam_missing_check(self.cam_merge,self.target_cam)
+                else:
+                    pass
+
                 self.visualize_target(self.target_cam)
                 if self.target_lidar==None:
                     self.velocity([0,0,0],'None')
@@ -350,7 +367,7 @@ class Track():
             elif self.to_lidar and self.to_cam==False:
                 print('change data to lidar')
                 self.target_cam=self.target_lidar
-                self.cam_missing_check(self.cam_merge,self.target_cam)
+                
                 self.lidar_missing_check(self.lidar_merge,self.target_lidar)
                 self.visualize_target(self.target_lidar)
                 if self.target_lidar==None:
@@ -364,6 +381,8 @@ class Track():
                 self.velocity([0,0,0],'None')
 
 # ____________________Fusion____________________ #
+
+
 
 
 # ____________________Visualize__________________#  
@@ -387,5 +406,4 @@ if __name__ == '__main__':
     rospy.init_node('Tracking_and_Following', anonymous=True)
     cls_ = Track(config)
     rospy.spin()
-
 

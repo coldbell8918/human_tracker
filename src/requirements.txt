@@ -19,6 +19,11 @@ tensorboard>=2.4.1
 seaborn>=0.11.0
 pandas
 
+#
+pyrealsense2
+easydict
+
+rospkg
 # export --------------------------------------
 # coremltools>=4.1
 # onnx>=1.8.1

@@ -223,10 +223,9 @@ def pub( list_1, list_2,data):
             person.pose.y = list_1.pop(0) ##depth
             person.id = list_2.pop(0)
             person.is_reconize = True
-            crowd.persons.append(person)
-
             img_msg=bridge.cv2_to_imgmsg(data.pop(0))  ## crops
-
+            person.crops=img_msg
+            crowd.persons.append(person)
 
 
 
@@ -253,7 +252,7 @@ if __name__ == '__main__':
     print("[INFO] YoloV5目标检测-程序启动")
     print("[INFO] 开始YoloV5模型加载")
     # YOLOV5模型配置文件(YAML格式)的路径 yolov5_yaml_path
-    model = YoloV5(yolov5_yaml_path='/home/cai/catkin_ws/src/human_following/src/config/yolov5s.yaml')
+    model = YoloV5(yolov5_yaml_path='/home/sb/catkin_ws/src/human_tracker/src/config/yolov5s.yaml')
     print("[INFO] 完成YoloV5模型加载")
     rospy.init_node('yolov5_node')
     global pub_camera_tracked
@@ -304,7 +303,7 @@ if __name__ == '__main__':
 
             ### pub_axis_list, pub_id_list,class_id_list
             # [[x,z], [id], [class(0/1)]]
-            pub( pub_axis_list, new_class_id_list,)
+            pub( pub_axis_list, new_class_id_list,crop_imgs)
             image_pub(canvas)
 
     finally:

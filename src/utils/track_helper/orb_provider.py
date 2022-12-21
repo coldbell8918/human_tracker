@@ -23,7 +23,7 @@ def orb_match(target_img,image_list):
 
     for image in image_list:
         image_keypoints, image_descriptors = orb.detectAndCompute(image,None)
-        matches = matcher.match(target_img,image)
+        matches = matcher.match(target_descriptors,image_descriptors)
         match_count.append(len(matches))
 
         dis=0
@@ -32,6 +32,3 @@ def orb_match(target_img,image_list):
         distances.append(dis) 
 
     return match_count,distances
-    
-    
-

@@ -11,7 +11,7 @@ def config_maker(file_path):
     config = configparser.ConfigParser()
 
     config['upper count setting'] = {
-        'searching_cnt_lim': '20',
+        'searching_cnt_lim': '2',
     }
     config['lower count setting']={
         'cnt': '20',
@@ -32,6 +32,10 @@ def config_maker(file_path):
         'angular const' : '0.8',
         'linear const' :'0.2',
     }
+    config['camera aov']={
+        'angle of view' : '85',
+    }
+    
     with open(file_path , 'w') as f:
         config.write(f)
     return config 
@@ -46,4 +50,3 @@ def config_comparer(file_path):
         if  os.path.isfile(file_path):
             os.remove(file_path)
             config_maker(file_path)
-
