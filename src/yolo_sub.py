@@ -1,16 +1,26 @@
 #!/usr/bin/env python3
-
-import rospy 
-from human_following.msg import track
-import numpy as np
+from human_following.msg import camera_person, camera_persons
 from leg_tracker.msg import Person, PersonArray, Leg, LegArray
-import time
-import os
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import Twist
+from visualization_msgs.msg import Marker
+
+import rospy 
+import numpy as np
+import time
+import os
+import math
+
+from std_srvs.srv import SetBool, SetBoolResponse 
+
 from utils.track_helper.config_info import config_maker,config_reader,config_comparer
-from utils.track_helper.help_functions import matching_target,goal_pub,track_function,matching_datas
-from utils.track_helper.help_transform import data_transform,tf_transform
+from utils.track_helper.help_track import make_target_function
+from utils.track_helper.help_matching import matching_data
+from utils.track_helper.help_transform import data_transform
+from utils.track_helper.help_cmd import cmd_decision
+
+# _______________Config_______________ #
 
 file_path=os.path.dirname(__file__) + '/config/following_config.ini'
 
@@ -22,142 +32,360 @@ else:
     print("The config file doesn't exist, therefor will make a file, parh:\n {} ".format(file_path))
     config_maker(file_path)
     config=config_reader(file_path)
+# _______________Config_______________ #
 
 class Track():
     def __init__(self,configs):
-        #Config
+        
+        
+        # ____________constant___________#
         self.cnt=int(configs['lower count setting']['cnt'])
         self.cnt2=int(configs['lower count setting']['cnt2'])
         self.searching_cnt_lim=int(configs['upper count setting']['searching_cnt_lim'])
-        self.waiting_cnt_lim=int(configs['upper count setting']['waiting_cnt_lim'])
-        self.finding_cnt_lim=int(configs['upper count setting']['finding_cnt_lim'])
-        self.distance_lim=float(configs['lower distance setting']['distance_lim'])
-
-        #Subscribing rostopics
-        self.subs1=[rospy.Subscriber('tracker', track, self.cam_track_callback)]
-        self.subs2=[rospy.Subscriber('people_tracked', PersonArray, self.person_callback)]
-        self.sub3=[rospy.Subscriber('/amcl_pose', PoseWithCovarianceStamped, self.robot_current_pos)]
+        self.id_or_axis=str(configs['track type setting']['type'])
+        self.const=float(configs['matching setting']['matching const'])
+        self.max_linear=float(configs['cmd setting']['max_linear const'])
+        self.max_angular=float(configs['cmd setting']['max_angular const'])
+        self.angular_const=float(configs['cmd setting']['angular const'])
+        self.linear_const=float(configs['cmd setting']['linear const'])
+        self.is_service=True
         
-        self.robot_x=0
-        self.robot_y=0
-        self.robot_th=0
+        # ____________constant___________#
 
-        #Publicating a rostopic : goal position
-        self.pub=rospy.Publisher('/move_base/current_goal_follow',PoseStamped,queue_size=1)
-        self.goal_msg=PoseStamped()
-        self.r=rospy.Rate(30)
+
+        # _________missing check_________#
+        self.make_target_cam,self.make_target_lidar=True,True
+        self.to_lidar,self.to_cam=False,False
+        self.cam_merge,self.lidar_merge,self.target_cam,self.target_lidar=list(),list(),None,None         
+        # _________missing check_________#
+
+
+        # ____________publish____________#
+        self.pubs = {}
+        self.pubs['cmd_vel'] = rospy.Publisher("cmd_vel", Twist,queue_size=1)
+        self.pubs['marker'] = rospy.Publisher("tracker/marker", Marker, queue_size=1)
+        # ____________publish____________#
         
-        #For saveing the last target's position
-        self.save_last_goal=list()
+        # ____________visual_____________#
+        self.visual_mesh=os.path.dirname(__file__) +'/utils/visualize_target/Body_mesh.dae'
+        self.marker=Marker()
+        # ____________visual_____________#
 
-        #Checking a target id 
-        self.camera_id_none,self.lidar_id_none =True,True
 
-        #save_data
-        self.camera_data,self.lidar_data=list(),list()
         
-    
-    def robot_current_pos(self,data): ### Robot's current position
-        positions=data.pose.pose
-        self.robot_x=positions.position.x
-        self.robot_y=positions.position.y
-        self.robot_th=positions.orientation.z
+        # ___________subscribe___________#
+        self.subs1=[rospy.Subscriber('tracker/data', camera_persons, self.cam_callback)]
+        self.subs2=[rospy.Subscriber('people_tracked', PersonArray, self.lidar_callback)]
+        # self.sub3=[rospy.Subscriber('tracker/data/crops',None, self.crops_callback)]
+        # ___________subscribe___________#
 
-    def cam_track_callback(self, data):
-        merge=data_transform(data,'cam')
-        if self.camera_id_none:
-            self.camera_track(merge)
-            if len(merge)!=0:
-                self.camera_cmd(merge)
-        else:
-            self.camera_cmd(merge)
+        # ____________service____________#
+        self.srv=rospy.Service('follow_on',SetBool, self.launch_callback)
+        # ____________service____________#
 
-    def camera_track(self, list_): ### making a target human who is near by the robot
-        print("Make a target id")
+
+        # ____________fustion____________#
+        self.timer=rospy.Timer(rospy.Duration(0.1),self.merge_callback)
+        # ____________fustion____________#
+
+
+
+# _______________CAM and LIDAR_______________ #
+# _________________callback__________________ #
+    def cam_callback(self, data):
+
+        """
+        Description: callback for detected human pose
+        Args:
+            data (human_following/track): detected human list
+        """
+        self.cam_merge,self.crop_images=data_transform(data,'cam','all')
+
+    def lidar_callback(self, data):
+        """
+        Description: callback for detected human pose
+        Args:
+            data (leg_tracker/PersonArray): detected human list
+        """
+        self.lidar_merge=data_transform(data,'lidar','all')
+# _______________CAM and LIDAR_______________ #
+# _________________callback__________________ #
+
+
+
+# ____________________CAM____________________ #
+
+    def cam_target_maker(self, list_): ### making a target human who is near by the robot
+        """
+        Description: making a target human
+        Args:
+            list_ (list array): detected human list e.g. [[0,id,(x,y,depth)],[0,id,(x,y,depth)],[...]]
+        """
+        print("Make a target id from CAMERA")
         if len(list_)!=0:
-            self.camera_id_none,self.target_c,target_axis=track_function(list_)
-            
-            return target_axis
+            self.target_cam_id,self.target_cam,index =make_target_function(list_,self.id_or_axis)
+            self.make_target_cam=False
+            self.to_lidar=False
+            self.target_img=self.crop_images[index]
+        else:  
+            self.target_cam=list()
+
+    def cam_missing_check(self, list_,target):   
+
+        """
+        Description: checking which the target missing or not 
+        Args:
+            list_ (list array): detected human list e.g. [[0,id,(x,y,depth)],[0,id,(x,y,depth)],[...]]
         
-        else: 
-            self.target_c= None
-            self.camera_id_none=True
-            return None,None,None
+        """
+        self.target_cam=target
+        if self.target_cam!=None:
+
+            if len(list_)!=0:
+                datas=list_,self.target_cam,self.target_img,self.crop_images
+                if matching_data(*datas,'len',self.id_or_axis,self.const,'cam')==0:
+                    if self.to_lidar==False:
+                        print('\ncam missing {}\n'.format(self.cnt))
+                        if self.cnt==self.searching_cnt_lim: 
+                            self.to_lidar=True
+                            print("\n Missing the target human form CAMEAR\n")
+                            # self.cnt=0
+                        # self.cnt+=1 
+                else:
+                    self.to_lidar=False
+                    self.target_cam_id,self.target_cam=matching_data(*datas,'id_axis',self.id_or_axis,self.const,'cam')
+                    print("Track id from CAMERA {}".format(self.target_cam_id))
+                    self.cnt=0
+            else:
+                if self.to_lidar==False:
+                    if self.cnt==self.searching_cnt_lim: 
+
+                        self.to_lidar=True
+                        print("\n Missing the target human form CAMEAR\n")
+                        # self.cnt=0
+                    print('\ncam missing {}\n'.format(self.cnt))
+                    # self.cnt+=1 
+# ____________________CAM____________________ #
+
+
+
+# ____________________LIDAR____________________ #
+
+    def lidar_target_maker(self, list_): ### making a target human who is near by the robot
+        """
+        Description: making a target human
+        Args:
+            list_ (list array): detected human list e.g. [[0,id,(x,y,depth)],[0,id,(x,y,depth)],[...]]
+        """
         
-    def wait_time_cnt(self,list_):  ### the time is overing its limitation, then the robot will be waiting(stopping)
-        if  self.cnt2<self.waiting_cnt_lim and matching_target(list_,self.target_c,'len')==0 : 
-            print('Robot is waiting the target until count {}/{}'.format(self.cnt2,self.waiting_cnt_lim))
-            if self.cnt2==self.waiting_cnt_lim-1:
-                self.cnt2,self.cnt=0,0
-                self.camera_track(list_)
-                
-    def camera_cmd(self, list_):   
-        if matching_target(list_,self.target_c,'len')!=0:
-            if self.cnt>=self.finding_cnt_lim:  ### considering misses the target a couple of second
-                print('\nFind the target {} \n'.format(self.target_c))
-            self.camera_move(list_,save=True)
-            print("Track id {}".format(self.target_c))
-            # if list_[self.target_c][]
-            self.cnt=0
+        print("Make a target id from LIDAR")
+        if len(list_)!=0:
+            self.target_lidar_id,self.target_lidar=make_target_function(list_,self.id_or_axis)
+            self.make_target_lidar=False
+            self.to_cam=False
         else:
-            if self.cnt>self.searching_cnt_lim: 
-                if self.cnt2<self.waiting_cnt_lim:
-                    self.wait_time_cnt(list_)
-                self.cnt2+=1
-            else: 
-                self.camera_move(list_,save=False)
-                print("Robot is deriving for searching the target until count: {}/{}".format(self.cnt,self.searching_cnt_lim))
-                self.cnt+=1
-    
-    def camera_move(self, list_,save): ### Pointing a robot's goal position. When the robot missed the target ,then save target's last position 
-        if save:             
-            num=matching_target(list_,self.target_c,'index')
-            x=list_[num][0][2][0]-self.distance_lim
-            y=list_[num][0][2][1]-self.distance_lim
+            self.target_lidar=list()
 
-            x,y= tf_transform(self.robot_x,self.robot_y,self.robot_th,x,y)
+    def lidar_missing_check(self, list_,target):   
+        """
+        Description: checking which the target missing or not 
+        Args:
+            list_ (list array): detected human list e.g. [[0,id,(x,y,depth)],[0,id,(x,y,depth)],[...]]
+        """
+        self.target_lidar=target
+        if self.target_lidar!=None:
+            if len(list_)!=0:
+                datas=list_,self.target_lidar,None,None
+                if matching_data(*datas,'len',self.id_or_axis,self.const,'lidar')==0:
+                    if self.to_cam==False:
+                        print('\nlidar missing {}\n'.format(self.cnt2))
+                        if self.cnt2==self.searching_cnt_lim: 
+                            self.to_cam=True
+                            print("\n Missing the target human form LIDAR\n")
+                        #     self.cnt2=0
+                        # self.cnt2+=1 
+                else:
+                    self.to_cam=False
+                    self.target_lidar_id,self.target_lidar=matching_data(*datas,'id_axis',self.id_or_axis,self.const,'lidar')
+                    print("Track id from LIDAR {}".format(self.target_lidar_id ))
+                    self.cnt2=0
 
-            if len(self.save_last_goal)!=0:
-                self.save_last_goal=list()
-            self.save_last_goal.append(x)
-            self.save_last_goal.append(y)
-        # print(self.goal_msg)
-        self.goal_msg=goal_pub(self.goal_msg,self.save_last_goal)
-        self.pub.publish(self.goal_msg)
-        # print(self.goal_mssg)
-        self.r.sleep()
+            else:
+                if self.to_cam==False:
+                    print('\nlidar missing {}\n'.format(self.cnt2))
+                    if self.cnt2==self.searching_cnt_lim: 
+                        self.to_cam=True
+                        print("\n Missing the target human form LIDAR\n")
+                    #     self.cnt2=0
+                    # self.cnt2+=1 
 
-##########################
-    # def person_callback(self, data):
-    #     merge=data_transform(data,'lidar')
-    #     if self.lidar_id_none:
-    #         self.lidar_track(merge)
-    #         if len(merge)!=0:
-    #             self.lidar_track(merge)
-      
-    
-    # def lidar_track(self, list_): ### making a target human who is near by the robot
-    #     print("Make a target id")
+# ____________________LIDAR____________________ #
 
-    #     if len(list_)!=0:
-    #         self.lidar_id_none,self.target_l,target_axis=track_function(list_)
-    #         return self.target_l ,target_axis
+# ____________________Launch____________________ #
+
+    def launch_callback(self, req):
+        if req.data:
+            self.is_service=True
+            return SetBoolResponse(True, 'Success')
+        else:
+            self.is_service=False
+            return SetBoolResponse(False, 'Fail')
         
-    #     else: 
-    #         self.target_l= None
-    #         self.lidar_id_none=True
-    #         return None,None,None
+# ____________________Launch____________________ #
 
-    # def make_target(self):
-    #     match=matching_datas
-    #     self.camera_data
-    #     self.lidar_data
-###################################### 
+
+# ___________________Velocity__________________ #
+
+    def velocity(self,axis,cam_lidar):
+        """
+        Description: making a velocity
+        Args:
+            axis : the target's axis
+            cam_lidar : None , lidar, cam
+        """   
+        if cam_lidar=='lidar' or cam_lidar=='cam':
+            x,y,depth=axis[0],axis[1],axis[2]  ## x,y,depth
+
+        elif cam_lidar=='None':
+            x,y,depth=axis[0],axis[1],axis[2] ## x,y,depth
+        
+        try:
+            theta=math.atan(y/x)
+        except:
+            theta=0.0
+        
+        self.angular=theta*self.angular_const+self.angular_const*0.1
+        self.linear=depth*self.linear_const+self.linear_const*0.1
+
+        if self.angular>self.max_angular:
+            self.angular=self.max_angular
+        if self.linear>self.max_linear:
+            self.linear=self.max_linear
+        velocity=cmd_decision(self.linear,self.angular,x,y,depth)
+        self.cmd(velocity[0],velocity[1])
+
+
+# ___________________Velocity__________________ #
+
+
+
+# _____________________CMD_____________________ #
+
+    def cmd(self, linear, angular):
+        """
+        Description: cmd publisher 
+        Args:
+            linear : linear velocity
+            angular : angular velocity
+        """
+        cmd_msg=Twist()
+        cmd_msg.linear.x=linear
+        cmd_msg.angular.z=angular
+        self.pubs['cmd_vel'].publish(cmd_msg)
+# _____________________CMD_____________________ #
+
+
+
+# ____________________Fusion____________________ #
+    
+    def merge_callback(self, timer):
+        """
+        Description: Final code
+        """
+
+        print('cam{}'.format(self.target_cam))
+        print('lidar{}'.format(self.target_lidar))
+        if not self.is_service: return
+
+        if self.make_target_cam==True and self.make_target_lidar ==True:
+            """
+                Description : initiate code 
+            """
+            print('\n Make target by Cam and Lidar\n')
+            self.cam_target_maker(self.cam_merge)
+            self.lidar_target_maker(self.lidar_merge)
+            
+        elif self.make_target_cam and self.make_target_lidar ==False:
+            print('\n Make target by Cam \n Lidar has it')
+            self.lidar_missing_check(self.lidar_merge,self.target_lidar)
+            # self.cam_target_maker([[0,self.target_lidar_id,(self.target_lidar)]])
+            
+            self.cam_target_maker(self.cam_merge)
+            self.visualize_target(self.target_lidar)
+            self.velocity(self.target_lidar,'lidar')
+            
+        elif self.make_target_cam==False and self.make_target_lidar :
+            print('\n Make target by Lidar \n Cam has it')
+            self.cam_missing_check(self.cam_merge,self.target_cam)
+            self.lidar_target_maker([[0,self.target_cam_id,(self.target_cam)]])
+            self.visualize_target(self.target_cam)
+            self.velocity(self.target_cam,'cam')
+
+            
+        else:
+            """
+                Description : tracking code 
+            """
+            if self.to_lidar ==False  and self.to_cam ==False:
+                self.lidar_missing_check(self.lidar_merge,self.target_lidar)
+                self.cam_missing_check(self.cam_merge,self.target_cam)
+                self.visualize_target(self.target_cam)
+                if self.target_lidar==None:
+                    self.velocity([0,0,0],'None')
+                else:
+                    self.velocity(self.target_cam,'cam')
+
+            elif self.to_lidar ==False and self.to_cam:
+                print('change data to cam')
+                self.target_lidar=self.target_cam
+                self.lidar_missing_check(self.lidar_merge,self.target_lidar)
+                self.cam_missing_check(self.cam_merge,self.target_cam)
+                self.visualize_target(self.target_cam)
+
+                if  self.target_cam==None:
+                    self.velocity([0,0,0],'None')
+                else:
+                    self.velocity(self.target_cam,'cam')
+
+            elif self.to_lidar and self.to_cam==False:
+                print('change data to lidar')
+                self.target_cam=self.target_lidar
+                self.cam_missing_check(self.cam_merge,self.target_cam)
+                self.lidar_missing_check(self.lidar_merge,self.target_lidar)
+                self.visualize_target(self.target_lidar)
+                if self.target_lidar==None:
+                   self.velocity([0,0,0],'None')
+                else:
+                    self.velocity(self.target_lidar,'lidar')
+
+            elif self.to_cam and self.to_lidar:
+                self.lidar_target_maker(self.lidar_merge)
+                self.cam_target_maker(self.cam_merge)
+                self.velocity([0,0,0],'None')
+
+# ____________________Fusion____________________ #
+
+
+# ____________________Visualize__________________#  
+    def visualize_target(self,axis):
+        self.marker.ns='anythings'
+        self.marker.id=1
+        self.marker.header.frame_id="base_scan"
+        self.marker.color.a=1.0
+        self.marker.color.r,self.marker.color.g ,self.marker.color.b = 1.0,1.0,1.0
+        self.marker.text='Target'
+        self.marker.pose.position.x=axis[0]
+        self.marker.pose.position.y=axis[1]
+        self.marker.pose.position.z=1
+        self.marker.frame_locked=True
+        self.marker.scale.x , self.marker.scale.y,self.marker.scale.z  = 0.2,0.2,0.2
+        self.marker.mesh_use_embedded_materials=True
+        self.marker.mesh_resource=self.visual_mesh
+        self.pubs['marker'].publish(self.marker)
 
 if __name__ == '__main__':
-    rospy.init_node('sub_yolo', anonymous=True)
-    tracker=Track(config)
+    rospy.init_node('Tracking_and_Following', anonymous=True)
+    cls_ = Track(config)
     rospy.spin()
 
 
-    #### while -> camera or lidar 

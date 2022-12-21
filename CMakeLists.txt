@@ -11,8 +11,11 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   rospy
   std_msgs
+  geometry_msgs
   message_generation
+  sensor_msgs
   leg_tracker
+  visualization_msgs
 )
 
 ## System dependencies are found with CMake's conventions
@@ -52,6 +55,8 @@ find_package(catkin REQUIRED COMPONENTS
 add_message_files(
   FILES
   track.msg
+  camera_person.msg
+  camera_persons.msg
 )
 
 ## Generate services in the 'srv' folder
@@ -72,6 +77,9 @@ add_message_files(
 generate_messages(
   DEPENDENCIES
   std_msgs
+  geometry_msgs
+  sensor_msgs
+  visualization_msgs
 )
 
 ################################################
@@ -104,9 +112,9 @@ generate_messages(
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-#  INCLUDE_DIRS include
-#  LIBRARIES human_following
-#  CATKIN_DEPENDS generate_msgs roscpp rospy std_msgs
+ INCLUDE_DIRS include
+ LIBRARIES human_following
+ CATKIN_DEPENDS roscpp rospy std_msgs geometry_msgs sensor_msgs visualization_msgs
 #  DEPENDS system_lib
 )
 

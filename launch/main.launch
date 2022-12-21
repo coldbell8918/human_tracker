@@ -1,0 +1,31 @@
+<launch>
+
+  <arg name="set_port_motor" default="/dev/ttyMotor"/>
+  <arg name="set_port_lidar" default="/dev/ydlidar"/>
+  <arg name="set_port_imu" default="/dev/ttyIMU"/>
+  <arg name="set_joy_en" default="0"/>
+
+  <!-- Map -->
+  <arg name="map_file" default="$(find omo_r1_navigation)/maps/map.yaml"/>
+  <node pkg="map_server" name="map_server" type="map_server" args="$(arg map_file)"/>
+  <arg name="open_rviz" default="true"/>
+  <arg name="move_forward_only" default="false"/>
+  
+  <!-- Amcl -->
+  <include file="$(find omo_r1_navigation)/launch/amcl.launch"/>
+  
+  <!-- Motor -->
+  <include file="$(find omo_r1_bringup)/launch/omo_r1_motor.launch">
+    <arg name="set_port" value="$(arg set_port_motor)"/>
+  </include>
+
+  <!-- TF -->
+  <include file="$(find omo_r1_bringup)/launch/omo_r1_remote.launch"/>
+
+  <!-- Following -->
+  <include file="$(find leg_tracker)/launch/joint_leg_tracker.launch"/>
+  <include file="$(find human_following)/launch/realsense.launch"/>
+  <node name="sub_yolo" type="yolo_sub.py" pkg="human_following" output="screen"/>
+
+  
+</launch>

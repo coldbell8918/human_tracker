@@ -11,9 +11,9 @@ import torch
 from utils.downloads import attempt_download
 from deep_sort_pytorch.utils.parser import get_config
 from deep_sort_pytorch.deep_sort import DeepSort
-from human_following.msg import track
-
-# from human_following.msg import track, camera_tracked
+from human_following.msg import  camera_person, camera_persons
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge, CvBridgeError
 
 import pyrealsense2 as rs
 import math
@@ -28,12 +28,12 @@ import cv2
 # PyTorch
 # YoloV5-PyTorch
 
-pipeline = rs.pipeline()  # 定义流程pipeline
-config = rs.config()  # 定义配置config
+pipeline = rs.pipeline()  # å®šä¹‰æµç¨‹pipeline
+config = rs.config()  # å®šä¹‰é…ç½®config
 config.enable_stream(rs.stream.depth, 848, 480, rs.format.z16, 30)
 config.enable_stream(rs.stream.color, 848, 480, rs.format.bgr8, 30)
-profile = pipeline.start(config)  # 流程开始
-align_to = rs.stream.color  # 与color流对齐
+profile = pipeline.start(config)  # æµç¨‹å¼€å§‹
+align_to = rs.stream.color  # ä¸Žcoloræµå¯¹é½
 align = rs.align(align_to)
 
 cfg = get_config()
@@ -48,124 +48,100 @@ deepsort = DeepSort(cfg.DEEPSORT.REID_CKPT,
 
 
 def get_aligned_images():
-    frames = pipeline.wait_for_frames()  # 等待获取图像帧
-    aligned_frames = align.process(frames)  # 获取对齐帧
-    aligned_depth_frame = aligned_frames.get_depth_frame()  # 获取对齐帧中的depth帧
-    color_frame = aligned_frames.get_color_frame()  # 获取对齐帧中的color帧
+    frames = pipeline.wait_for_frames()  # ç­‰å¾…èŽ·å–å›¾åƒå¸§
+    aligned_frames = align.process(frames)  # èŽ·å–å¯¹é½å¸§
+    aligned_depth_frame = aligned_frames.get_depth_frame()  # èŽ·å–å¯¹é½å¸§ä¸­çš„depthå¸§
+    color_frame = aligned_frames.get_color_frame()  # èŽ·å–å¯¹é½å¸§ä¸­çš„colorå¸§
 
-    ############### 相机参数的获取 #######################
-    intr = color_frame.profile.as_video_stream_profile().intrinsics  # 获取相机内参
+    ############### ç›¸æœºå‚æ•°çš„èŽ·å– #######################
+    intr = color_frame.profile.as_video_stream_profile().intrinsics  # èŽ·å–ç›¸æœºå†…å‚
     depth_intrin = aligned_depth_frame.profile.as_video_stream_profile(
-    ).intrinsics  # 获取深度参数（像素坐标系转相机坐标系会用到）
+    ).intrinsics  # èŽ·å–æ·±åº¦å‚æ•°ï¼ˆåƒç´ åæ ‡ç³»è½¬ç›¸æœºåæ ‡ç³»ä¼šç”¨åˆ°ï¼‰
     '''camera_parameters = {'fx': intr.fx, 'fy': intr.fy,
                          'ppx': intr.ppx, 'ppy': intr.ppy,
                          'height': intr.height, 'width': intr.width,
                          'depth_scale': profile.get_device().first_depth_sensor().get_depth_scale()
                          }'''
 
-    # 保存内参到本地
-    # with open('./intrinsics.json', 'w') as fp:
-    #json.dump(camera_parameters, fp)
-    #######################################################
-
-    depth_image = np.asanyarray(aligned_depth_frame.get_data())  # 深度图（默认16位）
-    depth_image_8bit = cv2.convertScaleAbs(depth_image, alpha=0.03)  # 深度图（8位）
+    depth_image = np.asanyarray(aligned_depth_frame.get_data())  # æ·±åº¦å›¾ï¼ˆé»˜è®¤16ä½ï¼‰
+    depth_image_8bit = cv2.convertScaleAbs(depth_image, alpha=0.03)  # æ·±åº¦å›¾ï¼ˆ8ä½ï¼‰
     depth_image_3d = np.dstack(
-        (depth_image_8bit, depth_image_8bit, depth_image_8bit))  # 3通道深度图
-    color_image = np.asanyarray(color_frame.get_data())  # RGB图
+        (depth_image_8bit, depth_image_8bit, depth_image_8bit))  # 3é€šé“æ·±åº¦å›¾
+    color_image = np.asanyarray(color_frame.get_data())  # RGBå›¾
 
-    # 返回相机内参、深度参数、彩色图、深度图、齐帧中的depth帧
+    # è¿”å›žç›¸æœºå†…å‚ã€æ·±åº¦å‚æ•°ã€å½©è‰²å›¾ã€æ·±åº¦å›¾ã€é½å¸§ä¸­çš„depthå¸§
     return intr, depth_intrin, color_image, depth_image, aligned_depth_frame
 
 
 class YoloV5:
     def __init__(self, yolov5_yaml_path='config/yolov5s.yaml'):
-        '''初始化'''
-        # 载入配置文件
+        '''åˆå§‹åŒ–'''
+        # è½½å…¥é…ç½®æ–‡ä»¶
         with open(yolov5_yaml_path, 'r', encoding='utf-8') as f:
             self.yolov5 = yaml.load(f.read(), Loader=yaml.SafeLoader)
-        # 随机生成每个类别的颜色
+        # éšæœºç”Ÿæˆæ¯ä¸ªç±»åˆ«çš„é¢œè‰²
         self.colors = [[np.random.randint(0, 255) for _ in range(
             3)] for class_id in range(self.yolov5['class_num'])]
-        # 模型初始化
+        # æ¨¡åž‹åˆå§‹åŒ–
         self.init_model()
     
     @torch.no_grad()
     def init_model(self):
-        '''模型初始化'''
-        # 设置日志输出
+        '''æ¨¡åž‹åˆå§‹åŒ–'''
+        # è®¾ç½®æ—¥å¿—è¾“å‡º
         set_logging()
-        # 选择计算设备
+        # é€‰æ‹©è®¡ç®—è®¾å¤‡
         device = select_device(self.yolov5['device'])
-        # 如果是GPU则使用半精度浮点数 F16
+        # å¦‚æžœæ˜¯GPUåˆ™ä½¿ç”¨åŠç²¾åº¦æµ®ç‚¹æ•° F16
         is_half = device.type != 'cpu'
-        # 载入模型
+        # è½½å…¥æ¨¡åž‹
         model = attempt_load(
-            self.yolov5['weight'], map_location=device)  # 载入全精度浮点数的模型
+            self.yolov5['weight'], map_location=device)  # è½½å…¥å…¨ç²¾åº¦æµ®ç‚¹æ•°çš„æ¨¡åž‹
         self.names = model.module.names if hasattr(model, 'module') else model.names  # get class names
 
         input_size = check_img_size(
-            self.yolov5['input_size'], s=model.stride.max())  # 检查模型的尺寸
+            self.yolov5['input_size'], s=model.stride.max())  # æ£€æŸ¥æ¨¡åž‹çš„å°ºå¯¸
         if is_half:
-            model.half()  # 将模型转换为半精度
-        # 设置BenchMark，加速固定图像的尺寸的推理
+            model.half()  # å°†æ¨¡åž‹è½¬æ¢ä¸ºåŠç²¾åº¦
+        # è®¾ç½®BenchMarkï¼ŒåŠ é€Ÿå›ºå®šå›¾åƒçš„å°ºå¯¸çš„æŽ¨ç†
         cudnn.benchmark = True  # set True to speed up constant image size inference
-        # 图像缓冲区初始化
+        # å›¾åƒç¼“å†²åŒºåˆå§‹åŒ–
         img_torch = torch.zeros(
             (1, 3, self.yolov5['input_size'], self.yolov5['input_size']), device=device)  # init img
-        # 创建模型
+        # åˆ›å»ºæ¨¡åž‹
         # run once
         _ = model(img_torch.half()
                   if is_half else img) if device.type != 'cpu' else None
-        self.is_half = is_half  # 是否开启半精度
-        self.device = device  # 计算设备
-        self.model = model  # Yolov5模型
-        self.img_torch = img_torch  # 图像缓冲区
+        self.is_half = is_half  # æ˜¯å¦å¼€å¯åŠç²¾åº¦
+        self.device = device  # è®¡ç®—è®¾å¤‡
+        self.model = model  # Yolov5æ¨¡åž‹
+        self.img_torch = img_torch  # å›¾åƒç¼“å†²åŒº
 
     def preprocessing(self, img):
-        '''图像预处理'''
-        # 图像缩放
-        # 注: auto一定要设置为False -> 图像的宽高不同
+        '''å›¾åƒé¢„å¤„ç†'''
         img_resize = letterbox(img, new_shape=(
             self.yolov5['input_size'], self.yolov5['input_size']), auto=False)[0]
-        # print("img resize shape: {}".format(img_resize.shape))
-        # 增加一个维度
+      
         img_arr = np.stack([img_resize], 0)
-        # 图像转换 (Convert) BGR格式转换为RGB
-        # 转换为 bs x 3 x 416 x
-        # 0(图像i), 1(row行), 2(列), 3(RGB三通道)
-        # ---> 0, 3, 1, 2
-        # BGR to RGB, to bsx3x416x416
         img_arr = img_arr[:, :, :, ::-1].transpose(0, 3, 1, 2)
-        # 数值归一化
-        # img_arr =  img_arr.astype(np.float32) / 255.0
-        # 将数组在内存的存放地址变成连续的(一维)， 行优先
-        # 将一个内存不连续存储的数组转换为内存连续存储的数组，使得运行速度更快
-        # https://zhuanlan.zhihu.com/p/59767914
         img_arr = np.ascontiguousarray(img_arr)
         return img_arr
 
     @torch.no_grad()
     def detect(self, img, canvas=None, view_img=True):
-        '''模型预测'''
-        # 图像预处理
-        img_resize = self.preprocessing(img)  # 图像缩放
-        self.img_torch = torch.from_numpy(img_resize).to(self.device)  # 图像格式转换
+        '''æ¨¡åž‹é¢„æµ‹'''
+        img_resize = self.preprocessing(img)  # å›¾åƒç¼©æ”¾
+        self.img_torch = torch.from_numpy(img_resize).to(self.device)  # å›¾åƒæ ¼å¼è½¬æ¢
         self.img_torch = self.img_torch.half(
-        ) if self.is_half else self.img_torch.float()  # 格式转换 uint8-> 浮点数
-        self.img_torch /= 255.0  # 图像归一化
+        ) if self.is_half else self.img_torch.float()  # æ ¼å¼è½¬æ¢ uint8-> æµ®ç‚¹æ•°
+        self.img_torch /= 255.0  # å›¾åƒå½’ä¸€åŒ–
         if self.img_torch.ndimension() == 3:
             self.img_torch = self.img_torch.unsqueeze(0)
-        # 模型推理
         t1 = time_sync()
         pred = self.model(self.img_torch, augment=False)[0]
-        # pred = self.model_trt(self.img_torch, augment=False)[0]
-        # NMS 非极大值抑制
         pred = non_max_suppression(pred, self.yolov5['threshold']['confidence'],
                                    self.yolov5['threshold']['iou'], classes=None, agnostic=False)
         t2 = time_sync()
-        # print("推理时间: inference period = {}".format(t2 - t1))
-        # 获取检测结果
         det = pred[0]
 
         if view_img and canvas is None:  canvas = np.copy(img)
@@ -173,8 +149,6 @@ class YoloV5:
         xyxy_list,conf_list,class_id_list,pub_id_list= list(),list(),list(),list()
         
         if det is not None and len(det):
-            # 画面中存在目标对象
-            # 将坐标信息恢复到原始图像的尺寸
             det[:, :4] = scale_coords(img_resize.shape[2:], det[:, :4], img.shape).round()
             xywhs = xyxy2xywh(det[:, 0:4])
             confs = det[:, 4]
@@ -190,7 +164,7 @@ class YoloV5:
                     class_id_list.append(output[4])
                     for id in class_id_list:
                         if view_img:
-                            # 绘制矩形框与标签
+                            # ç»˜åˆ¶çŸ©å½¢æ¡†ä¸Žæ ‡ç­¾
                             if class_id==0:
                                 label = f'{id} {self.names[class_id]} {conf:.2f}'
                                 self.plot_one_box(output[0:4], canvas, label=label, color=self.colors[class_id], line_thickness=3)
@@ -198,7 +172,7 @@ class YoloV5:
         return canvas, class_id_list, xyxy_list, conf_list,pub_id_list
 
     def plot_one_box(self, x, img, color=None, label=None, line_thickness=None):
-        ''''绘制矩形框+标签'''
+        ''''ç»˜åˆ¶çŸ©å½¢æ¡†+æ ‡ç­¾'''
         
         tl = line_thickness or round(
             0.002 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thickness
@@ -215,53 +189,49 @@ class YoloV5:
                         [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
     
    
-def pub( list_1, list_2, list_3):
-    blish=rospy.Publisher('tracker', track, queue_size=1)
-    pub_array=track()
-    pub_array.axis,pub_array.clss,pub_array.number=list_1,list_2,list_3
-    rate = rospy.Rate(10)
+def pub( list_1, list_2):
+    global pub_camera_tracked
+    global camera_frame
+    persons = camera_persons()
+    while not rospy.is_shutdown():
+        person = camera_person()
+        if len(list_2) == 0:
+            break
+        else:
+            person.pose.x = -list_1.pop(0) ##y
+            person.pose.y = list_1.pop(0) ##depth
+            person.id = list_2.pop(0)
+            person.is_reconize = True
+            persons.persons.append(person)
+            
+    persons.header.stamp = rospy.Time.now()
+    persons.header.frame_id = camera_frame
+    pub_camera_tracked.publish(persons)
 
-    if not rospy.is_shutdown():
-        blish.publish(pub_array)
-        rate.sleep()
-
-    # global pub_camera_tracked
-    # data = camera_tracked()
-    # data.pose.x = list_1[2]
-    # data.pose.y = list_1[0]
-    # data.is_reconize = list_2[0]
-    # data.index = list_3[0]
-    # data.header.stamp = rospy.Time.now()
-    # ## Todo frame id to parameter
-    # data.header.frame_id = "camera_link"
-    # pub_camera_tracked.publish(data)
-
-    
+def image_pub(image):
+    global pub_camera_img
+    bridge=CvBridge()
+    img_msg=bridge.cv2_to_imgmsg(image)
+    pub_camera_img.publish(img_msg)
 
 
-
-
-    
 
 if __name__ == '__main__':
-    print("[INFO] YoloV5目标检测-程序启动")
-    print("[INFO] 开始YoloV5模型加载")
-    # YOLOV5模型配置文件(YAML格式)的路径 yolov5_yaml_path
     model = YoloV5(yolov5_yaml_path='/home/cai/catkin_ws/src/human_following/src/config/yolov5s.yaml')
-    print("[INFO] 完成YoloV5模型加载")
     rospy.init_node('yolov5_node')
-    # global pub_camera_tracked
-    # pub_camera_tracked = rospy.Publisher("tracker", camera_tracked, queue_size=1)
-
+    global pub_camera_tracked
+    global camera_frame
+    global pub_camera_img
+    camera_frame = rospy.get_param("camera_frame", "camera_link")
+    pub_camera_tracked = rospy.Publisher("tracker/data", camera_persons, queue_size=1)
+    pub_camera_img = rospy.Publisher("tracker/image", Image, queue_size=1)
 
     try:
-        while True:
+        while not rospy.is_shutdown():
             # Wait for a coherent pair of frames: depth and color
-            intr, depth_intrin, color_image, depth_image, aligned_depth_frame = get_aligned_images()  # 获取对齐的图像与相机内参
+            intr, depth_intrin, color_image, depth_image, aligned_depth_frame = get_aligned_images()  # èŽ·å–å¯¹é½çš„å›¾åƒä¸Žç›¸æœºå†…å‚
             if not depth_image.any() or not color_image.any():
                 continue
-            # Convert images to numpy arrays
-            # Apply colormap on depth image (image must be converted to 8-bit per pixel first)
             depth_colormap = cv2.applyColorMap(cv2.convertScaleAbs(
                 depth_image, alpha=0.03), cv2.COLORMAP_JET)
             # Stack both images horizontally
@@ -269,50 +239,37 @@ if __name__ == '__main__':
             
             # Show images
 
-            t_start = time.time()  # 开始计时
-            # YoloV5 目标检测
+            t_start = time.time()  # å¼€å§‹è®¡æ—¶
+            # YoloV5 ç›®æ ‡æ£€æµ‹
             canvas, class_id_list, xyxy_list, conf_list,pub_id_list= model.detect(color_image)
            
-            t_end = time.time()  # 结束计时\
+            t_end = time.time()  # ç»“æŸè®¡æ—¶\
             new_class_id_list,new_pub_id_list,camera_xyz_list,pub_axis_list=list(),list(),list(),list()
             
 
             if xyxy_list:
                 for i ,index in enumerate(pub_id_list):
                     if index==0:
-                        ux = int((xyxy_list[i][0]+xyxy_list[i][2])/2)  # 计算像素坐标系的x
-                        uy = int((xyxy_list[i][1]+xyxy_list[i][3])/2)  # 计算像素坐标系的y
+                        ux = int((xyxy_list[i][0]+xyxy_list[i][2])/2)  # è®¡ç®—åƒç´ åæ ‡ç³»çš„x
+                        uy = int((xyxy_list[i][1]+xyxy_list[i][3])/2)  # è®¡ç®—åƒç´ åæ ‡ç³»çš„y
                         dis = aligned_depth_frame.get_distance(ux, uy)
                         camera_xyz = rs.rs2_deproject_pixel_to_point(
-                            depth_intrin, (ux, uy), dis)  # 计算相机坐标系的xyz
-                        camera_xyz = np.round(np.array(camera_xyz), 3)  # 转成3位小数
+                            depth_intrin, (ux, uy), dis)  # è®¡ç®—ç›¸æœºåæ ‡ç³»çš„xyz
+                        camera_xyz = np.round(np.array(camera_xyz), 3)  # è½¬æˆ3ä½å°æ•°
                         camera_xyz = camera_xyz.tolist()
                         new_class_id_list.append(class_id_list[i])
-                        new_pub_id_list.append(pub_id_list[i])
                         pub_axis_list.append(camera_xyz[0])
-                        pub_axis_list.append(camera_xyz[2])
-                        cv2.circle(canvas, (ux,uy), 4, (255, 255, 255), 5)#标出中心点
+                        pub_axis_list.append(camera_xyz[1])
+                        cv2.circle(canvas, (ux,uy), 4, (255, 255, 255), 5)#æ ‡å‡ºä¸­å¿ƒç‚¹
                         cv2.putText(canvas, str(camera_xyz), (ux+20, uy+10), 0, 1,
-                                    [225, 255, 255], thickness=2, lineType=cv2.LINE_AA)#标出坐标
+                                    [225, 255, 255], thickness=2, lineType=cv2.LINE_AA)#æ ‡å‡ºåæ ‡
                         camera_xyz_list.append(camera_xyz)
 
             ### pub_axis_list, pub_id_list,class_id_list
-            pub( pub_axis_list, new_pub_id_list, new_class_id_list)
-
-
-            # 添加fps显示
-            fps = int(1.0 / (t_end - t_start))
-            cv2.putText(canvas, text="FPS: {}".format(fps), org=(50, 50),
-                        fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1, thickness=2,
-                        lineType=cv2.LINE_AA, color=(0, 0, 0))
-            cv2.namedWindow('detection', flags=cv2.WINDOW_NORMAL |
-                            cv2.WINDOW_KEEPRATIO | cv2.WINDOW_GUI_EXPANDED)
-            cv2.imshow('detection', canvas)
-            key = cv2.waitKey(1)
-            # Press esc or 'q' to close the image window
-            if key & 0xFF == ord('q') or key == 27:
-                cv2.destroyAllWindows()
-                break
+            # [[x,z], [id], [class(0/1)]]
+            pub( pub_axis_list, new_class_id_list)
+            image_pub(canvas)
     finally:
         # Stop streaming
         pipeline.stop()
+        cv2.destroyAllWindows()

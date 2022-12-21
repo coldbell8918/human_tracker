@@ -9,8 +9,9 @@ import os
 from move_base_msgs.msg import MoveBaseAction, MoveBaseGoal
 from geometry_msgs.msg import PoseStamped
 from utils.track_helper.config_info import config_maker,config_reader,config_comparer
-from utils.track_helper.help_functions import matching_target,goal_pub,track_function,matching_datas
-from utils.track_helper.help_transform import data_transform,tf_transform
+from utils.track_helper.help_track import track_function
+from utils.track_helper.help_matching import matching_data,matching_target
+from utils.track_helper.help_transform import data_transform
 from geometry_msgs.msg import Twist
 import math
 
@@ -50,7 +51,6 @@ class Track():
         self.robot_th=0
         self.linear=0.25
         self.angular=0
-        self.cnt3=0
         self.delta=0.95
         #Publicating a rostopic : goal position
         # self.pub=rospy.Publisher('/move_base/current_goal_follow',PoseStamped,queue_size=1)
@@ -67,17 +67,15 @@ class Track():
         self.camera_data,self.lidar_data=list(),list()
         
     
-    # def robot_current_pos(self,data): ### Robot's current position
-    #     # positions=data.pose.pose
-    #     # self.robot_x=positions.position.x
-    #     # self.robot_y=positions.position.y
-    #     # self.robot_th=positions.orientation.z
-    #     self.robot_x=0
-    #     self.robot_y=0
-    #     self.robot_th=0
 
     def cam_track_callback(self, data):
-        merge=data_transform(data,'cam')
+        """
+        Description: callback for detected human pose
+        Args:
+            data (human_following/camera_persons): detected human list
+        """
+        
+        merge=data_transform(data,'cam','all')
         if self.camera_id_none:
             self.camera_track(merge)
             if len(merge)!=0:
@@ -88,51 +86,39 @@ class Track():
     def camera_track(self, list_): ### making a target human who is near by the robot
         print("Make a target id")
         if len(list_)!=0:
-            self.camera_id_none,self.target_c,target_axis=track_function(list_)
+            self.camera_id_none,self.target_c,self.target_axis=track_function(list_)
             
-            return target_axis
+            # return target_axis
         
         else: 
             self.target_c= None
             self.camera_id_none=True
-            return None,None,None
+            # return None,None,None
         
     def wait_time_cnt(self,list_):  ### the time is overing its limitation, then the robot will be waiting(stopping)
-        if  self.cnt2<self.waiting_cnt_lim and matching_target(list_,self.target_c,'len')==0 : 
+        if  self.cnt2<self.waiting_cnt_lim and matching_data(list_,self.target_c,'len')==0 : 
             print('Robot is waiting the target until count {}/{}'.format(self.cnt2,self.waiting_cnt_lim))
             if self.cnt2==self.waiting_cnt_lim-1:
                 self.cnt2,self.cnt=0,0
                 self.camera_track(list_)
-
-    # def wait_time_cnt(self,list_):  ### the time is overing its limitation, then the robot will be waiting(stopping)
-    #     if  self.cnt2<self.waiting_cnt_lim and matching_target(list_,self.target_c,'len')==0 : 
-    #         self.cnt3+=1
-        
-    #     if self.cnt3==5:
-    #         print('Robot is waiting the target until count {}/{}'.format(self.cnt2,self.waiting_cnt_lim))
-    #         if self.cnt2==self.waiting_cnt_lim-1:
-    #             self.cnt2,self.cnt=0,0
-    #             self.camera_track(list_)
-    #         self.cnt3=0
                 
     def camera_cmd(self, list_):   
-        if matching_target(list_,self.target_c,'len')!=0:
+        if matching_data(list_,self.target_c,'len')!=0:
             if self.cnt>=self.finding_cnt_lim:  ### considering misses the target a couple of second
                 print('\nFind the target {} \n'.format(self.target_c))
-            # self.camera_move(list_,save=True)
             print("Track id {}".format(self.target_c))
-            _,_,target_axis=track_function(list_)
+            # _,_,target_axis=track_function(list_)
             print('\nRobot has a target now, id: {} \n'.format(self.target_c))
-            x,y,z=target_axis[1], target_axis[0], target_axis[2]
+            x,y,z=self.target_axis[1],self.target_axis[0],self.target_axis[2]
             self.velocity(x,y,z)
             self.cnt=0
+
         else:
             if self.cnt>self.searching_cnt_lim: 
                 if self.cnt2<self.waiting_cnt_lim:
                     self.wait_time_cnt(list_)
                 self.cnt2+=1
             else: 
-                #self.camera_move(list_,save=False)
                 print("Robot is deriving for searching the target until count: {}/{}".format(self.cnt,self.searching_cnt_lim))
                 self.cnt+=1
 
@@ -184,24 +170,6 @@ class Track():
         cmd_msg.angular.y=0
         cmd_msg.angular.z=angular
         self.pubs['cmd_vel'].publish(cmd_msg)
-
-    # def camera_move(self, list_,save): ### Pointing a robot's goal position. When the robot missed the target ,then save target's last position 
-    #     if save:             
-    #         num=matching_target(list_,self.target_c,'index')
-    #         x=list_[num][0][2][0]-self.distance_lim
-    #         y=list_[num][0][2][1]-self.distance_lim
-
-    #         x,y= tf_transform(self.robot_x,self.robot_y,self.robot_th,x,y)
-
-    #         if len(self.save_last_goal)!=0:
-    #             self.save_last_goal=list()
-    #         self.save_last_goal.append(x)
-    #         self.save_last_goal.append(y)
-        # print(self.goal_msg)
-        # self.goal_msg=goal_pub(self.goal_msg,self.save_last_goal)
-        # self.pub.publish(self.goal_msg)
-        # # print(self.goal_mssg)
-        # self.r.sleep()
 
 ##########################
     # def person_callback(self, data):

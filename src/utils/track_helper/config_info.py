@@ -12,15 +12,25 @@ def config_maker(file_path):
 
     config['upper count setting'] = {
         'searching_cnt_lim': '20',
-        'waiting_cnt_lim': '10',
-        'finding_cnt_lim': '5',
     }
     config['lower count setting']={
-        'cnt': '0',
-        'cnt2': '0',
+        'cnt': '20',
+        'cnt2': '20',
     }
     config['lower distance setting']={
         'distance_lim' : '0',
+    }
+    config['track type setting']={
+        'type' : 'axis',
+    } 
+    config['matching setting']={
+        'matching const' : '2.0',
+    }
+    config['cmd setting']={
+        'max_linear const' : '1.0',
+        'max_angular const' : '1.0',
+        'angular const' : '0.8',
+        'linear const' :'0.2',
     }
     with open(file_path , 'w') as f:
         config.write(f)
