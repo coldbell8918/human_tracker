@@ -21,7 +21,15 @@ def data_transform(data,cam_lidar,type):
                 depth=round(crowd[i].pose.y,3) ## taken depth
                 x=round(pow(depth**2-y**2,0.5),3)
                 merge.append((x,y,depth))
-                crop_imgs.appedn(data.persons.crop_img)
+                height=crowd[i].shape[0]
+                weight=crowd[i].shape[1]
+                dim=crowd[i].shape[2]
+                image =crowd[i].crops
+                image=[i for i in image]
+                image=np.array(image).astype(np.uint8)  
+                image=image.reshape(height,weight,dim)
+                crop_imgs.append(image)
+
             merge=np.array(merge,dtype=object)
             return np.reshape(merge,(int(len(merge)/3),3)), crop_imgs  ### merge=[[0,1,(x,y,depth)]] 
 

@@ -23,6 +23,8 @@ import numpy as np
 import sys
 import rospy
 import cv2
+from std_msgs.msg import Int64MultiArray
+
 # PyTorch
 # YoloV5-PyTorch
 
@@ -187,7 +189,10 @@ class YoloV5:
                         xyxy = xywh2xyxy(b).long()
                         clip_boxes(xyxy, for_crop.shape)
                         crop = for_crop[int(xyxy[0, 1]):int(xyxy[0, 3]), int(xyxy[0, 0]):int(xyxy[0, 2]), ::(1)]
+                        # crop=cv2.cvtColor(crop , cv2.COLOR_BGR2GRAY)
+                        # print(crop)
                         crop_imgs.append(crop)
+        # print(crop_imgs)
 
         return canvas, class_id_list, xyxy_list, conf_list,crop_imgs
     
@@ -214,6 +219,7 @@ def pub( list_1, list_2,data):
 
     crowd = camera_persons()
     bridge=CvBridge()
+
     while not rospy.is_shutdown():
         person = camera_person()
         if len(list_2) == 0:
@@ -223,8 +229,15 @@ def pub( list_1, list_2,data):
             person.pose.y = list_1.pop(0) ##depth
             person.id = list_2.pop(0)
             person.is_reconize = True
-            img_msg=bridge.cv2_to_imgmsg(data.pop(0))  ## crops
-            person.crops=img_msg
+            # print(np.array(data,dtype=int).shape)
+            # print(np.array(data.pop(0),dtype=int).shape)
+            _crop=np.array(data.pop(0)).astype(np.uint8)  
+            height,weight,dim=_crop.shape
+            _crop=_crop.flatten()
+            person.shape.append(height)
+            person.shape.append(weight)
+            person.shape.append(dim)
+            person.crops=_crop
             crowd.persons.append(person)
 
 
@@ -252,7 +265,7 @@ if __name__ == '__main__':
     print("[INFO] YoloV5目标检测-程序启动")
     print("[INFO] 开始YoloV5模型加载")
     # YOLOV5模型配置文件(YAML格式)的路径 yolov5_yaml_path
-    model = YoloV5(yolov5_yaml_path='/home/sb/catkin_ws/src/human_tracker/src/config/yolov5s.yaml')
+    model = YoloV5(yolov5_yaml_path='/home/cai/catkin_ws/src/human_following/src/config/yolov5s.yaml')
     print("[INFO] 完成YoloV5模型加载")
     rospy.init_node('yolov5_node')
     global pub_camera_tracked
@@ -283,6 +296,7 @@ if __name__ == '__main__':
             
 
             canvas, class_id_list, xyxy_list, conf_lis,crop_imgs= model.detect(color_image)
+
             t_end = time.time()  # 结束计时\
             new_class_id_list,pub_axis_list=list(),list()
             if xyxy_list:
@@ -303,6 +317,8 @@ if __name__ == '__main__':
 
             ### pub_axis_list, pub_id_list,class_id_list
             # [[x,z], [id], [class(0/1)]]
+
+
             pub( pub_axis_list, new_class_id_list,crop_imgs)
             image_pub(canvas)
 

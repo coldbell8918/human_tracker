@@ -18,7 +18,7 @@ class_name: [ 'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'trai
 # 阈值设置
 threshold:
   iou: 0.45
-  confidence: 0.25
+  confidence: 0.6
 # 计算设备
 # - cpu
 # - 0 <- 使用GPU

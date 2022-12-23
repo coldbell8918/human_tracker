@@ -1,7 +1,7 @@
 import numpy as np
-from orb_provider import orb_match
+from .orb_provider import orb_match
 
-def matching_data(list_,target,target_img,imgs,length,type,const,sensor):
+def matching_data(list_,target,target_img,imgs,length,type,const,sensor,match_ratio,match_type):
     """
     Description: Find target data from list_ -> len : 0 means there is no matching data, 1 means find data ; index : target data's index from list_
     Args:
@@ -30,10 +30,11 @@ def matching_data(list_,target,target_img,imgs,length,type,const,sensor):
         
 
         if sensor =='cam':
-            match_count,distances=orb_match(target_img,imgs)
-            norm=np.linalg.norm(axis_lists-target,axis=0)
+            match_count,distances=orb_match(target_img,imgs,match_ratio,match_type)
+    
+            norm=np.linalg.norm(axis_lists-target,axis=1)
             calculate=np.min(distances*norm/match_count)
-            check=np.where(calculate<const)[0]
+            check=np.where(calculate)[0]
             if check==[]:
                 if length=='len':
                     return 0
@@ -61,9 +62,16 @@ def matching_data(list_,target,target_img,imgs,length,type,const,sensor):
         
 
     
-def cam_aof_check(target_id,target_axis,cam_aov):
-    target_axis=np.array(target_axis)
-    theta=np.arcsin(target_axis[0]/target_axis[2]) ## x/depth
+def cam_aov_check(target_id,target_axis,cam_aov):
+    """
+    Description: camera angle of view (input data is only lidar type)
+    Args:
+        target_id : target_id
+        target_axis : [x,y,depth] 
+        cam_aov : default 0.5
+    return :  target_id,target_axis
+    """
+    theta=np.arcsin(target_axis[0]/(target_axis[2]+0.0001)) ## x/depth #to prevent zero division +0.00001
     if theta<(90-cam_aov/2) or theta>(cam_aov/2+90):
         return None,None
     else:

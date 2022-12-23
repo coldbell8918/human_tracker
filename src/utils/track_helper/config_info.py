@@ -35,6 +35,10 @@ def config_maker(file_path):
     config['camera aov']={
         'angle of view' : '85',
     }
+    config['orb match']={
+        'ratio' : '0.4',
+        'match type': 'knnMatch',
+    }
     
     with open(file_path , 'w') as f:
         config.write(f)
